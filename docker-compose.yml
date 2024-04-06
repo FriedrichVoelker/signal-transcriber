@@ -4,8 +4,6 @@ services:
     build:
       context: transcriber
       dockerfile: Dockerfile
-    args:
-      - SIGNAL_CLI_VERSION=0.13.2
     ports:
       - "8080:8080"
     environment:
