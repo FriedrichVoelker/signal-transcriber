@@ -9,8 +9,9 @@ WORKDIR /app
 # Install dependencies
 RUN apt-get update && apt-get install -y \
 	node \
-	openjdk-21-jre-headless \
-	openjdk-21-jdk-headless \
+	npm \
+	openjdk-17-jre \
+	openjdk-17-jdk \
 	libc6 \
 	wget \
 	&& rm -rf /var/lib/apt/lists/*

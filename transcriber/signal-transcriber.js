@@ -13,11 +13,8 @@ const DEBUG = process.env.DEBUG || false;
 const WHISPER_SERVICE_URL = process.env.WHISPER_SERVICE_URL || 'http://whisper:8765/';
 
 // Start Signal CLI deamon in multi-device mode with open tcp socket on port RPC_PORT
-spawn('signal-cli', ['daemon', '--tcp', RPC_PORT]).then(() => {
-	console.log('Signal Daemon started');
-	startClient();
-});
-
+spawn('signal-cli', ['daemon', '--tcp', RPC_PORT])
+console.log('Signal Daemon started');
 
 // Start HTTP Server to listen for incoming connections
 const httpServer = http.createServer((req, res) => {
@@ -81,6 +78,7 @@ const startClient = () => {
 		}
 	});
 }
+startClient();
 
 
 const sendToWhisperService = (account, filename, attachmentId) => {

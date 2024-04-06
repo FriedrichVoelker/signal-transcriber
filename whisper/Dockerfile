@@ -9,7 +9,6 @@ RUN apt-get update && apt-get install -y \
 	python3-full \
 	python3-pip \
 	python3-setuptools-rust \
-	python3-websockets \
 	git \
 	&& rm -rf /var/lib/apt/lists/*
 
@@ -19,6 +18,7 @@ RUN python3 -m venv /opt/venv
 # Install whisper
 COPY . /app
 
+RUN /opt/venv/bin/pip install -r requirements.txt
 RUN /opt/venv/bin/pip install git+https://github.com/openai/whisper.git 
 
-CMD ["/opt/venv/bin/python", "whisper.py"]
+CMD ["/opt/venv/bin/python", "main.py"]

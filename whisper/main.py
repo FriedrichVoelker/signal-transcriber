@@ -3,7 +3,7 @@
 import sys
 import os
 import asyncio
-from websockets.server import serve
+from websockets import serve
 import whisper
 
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "medium")
