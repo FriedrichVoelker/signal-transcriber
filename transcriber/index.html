@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Signal Transcriber</title>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSQX0FslNhTDadL4O5SAGapGt4FodqL8My0mA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+	<style>
+		html {
+			margin: 0;
+			padding: 0;
+			width: 100%;
+			height: 100%;
+			font-family: "Roboto", sans-serif;
+		}
+
+		.qrcode {
+			padding: 20px;
+			margin: 0 auto;
+			display: block;
+		}
+
+		.qrcode img {
+			margin: 0 auto;
+			display: block;
+		}
+	
+		.link {
+			display: block;
+			text-align: center;
+			margin: 20px auto;
+			text-decoration: none;
+			border: 1px solid black;
+			padding: 10px 0px;
+			border-radius: 8px;
+			width: 35%;
+		}
+	
+	
+		.card-alert {
+			padding: 20px;
+			border-radius: 10px;
+			background-color: rgba(226, 51, 51, 0.658);
+			text-align: center;
+			color: white;
+			font-weight: bold;
+			border: 1px solid whitesmoke;
+			width: 50%;
+			margin: 0 auto;
+		}
+	
+	
+	</style>
+</head>
+<body>
+	<div id="qrcode" class="qrcode"></div>
+
+	<a href="" id="link" class="link"></a>
+
+	<div class="card-alert">
+		Test123
+	</div>
+</body>
+<script defer>
+	const qrCodeLink = '%QRCODE_PLACEHOLDER%'
+
+	new QRCode(document.getElementById("qrcode"), {
+		width: 512,
+		height: 512,
+		text: qrCodeLink
+	});
+
+
+	document.getElementById("link").href = qrCodeLink;
+	document.getElementById("link").innerText = qrCodeLink;
+
+</script>
+
+</html>
