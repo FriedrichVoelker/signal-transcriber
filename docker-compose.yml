@@ -9,7 +9,7 @@ services:
     environment:
       - HTTP_PORT=8080
       - RPC_PORT=7583
-      - WHISPER_SERVICE_URL=http://whisper:8765
+      - WHISPER_SERVICE_URL=ws://whisper:8765
     volumes:
       - ./transcriber:/root/.local/share/signal-cli
       - ./shared:/signalshare
@@ -22,6 +22,6 @@ services:
       dockerfile: Dockerfile
     environment:
       - SOCKET_PORT=8765
-      - WHISPER_MODEL=base # tiny, base, small, medium, large (https://github.com/openai/whisper?tab=readme-ov-file#available-models-and-languages)
+      - WHISPER_MODEL=tiny # tiny, base, small, medium, large (https://github.com/openai/whisper?tab=readme-ov-file#available-models-and-languages)
     volumes:
       - ./shared:/signalshare

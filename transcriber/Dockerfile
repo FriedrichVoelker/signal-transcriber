@@ -17,8 +17,9 @@ RUN apt-get update && apt-get install -y \
 RUN wget https://download.oracle.com/java/21/latest/jdk-21_linux-aarch64_bin.tar.gz \
 	&& tar -xvf jdk-21_linux-aarch64_bin.tar.gz -C /opt \
 	&& ln -sf /opt/jdk-21.0.2/bin/java /usr/local/bin/ \
-	&& ln -sf /opt/jdk-21.0.2/bin/javac /usr/local/bin/ \
-	&& export JAVA_HOME=/opt/jdk-21.0.2
+	&& ln -sf /opt/jdk-21.0.2/bin/javac /usr/local/bin/ 
+
+ENV JAVA_HOME=/opt/jdk-21.0.2
 
 # Install rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -44,4 +45,7 @@ COPY . /app
 
 RUN npm install 
 
-CMD ["node", "signal-transcriber.js"]
+# Start the signal-cli daemon and keep it running in the background
+#RUN signal-cli daemon --tcp 0.0.0.0:${RPC_PORT} &
+RUN chmod +x run.sh
+CMD ["bash", "./run.sh"]
