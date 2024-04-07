@@ -1,1 +1,3 @@
+setuptools-rust
+setuptools
 websockets

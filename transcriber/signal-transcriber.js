@@ -13,18 +13,35 @@ const DEBUG = process.env.DEBUG || false;
 const WHISPER_SERVICE_URL = process.env.WHISPER_SERVICE_URL || 'http://whisper:8765/';
 
 // Start Signal CLI deamon in multi-device mode with open tcp socket on port RPC_PORT
-spawn('signal-cli', ['daemon', '--tcp', RPC_PORT])
-console.log('Signal Daemon started');
+// wait for signal-cli to start before starting the HTTP server. when started it will return a line like INFO  SocketHandler - Started JSON-RPC server on /127.0.0.1
+const signalCli = spawn('signal-cli', [ 'daemon', '--tcp']);
+
+signalCli.stderr.on('data', (data) => {
+	console.error('Signal CLI Error:', data.toString());
+});
+
+signalCli.stdout.on('data', (data) => {
+	console.log('Signal CLI Incoming Data:', data.toString());
+	if (data.toString().includes('Started JSON-RPC server')) {
+		console.log('Signal CLI started');
+		startClient();
+	}
+});
+
+
+
 
 // Start HTTP Server to listen for incoming connections
 const httpServer = http.createServer((req, res) => {
 	console.log('Request:', req.url);
 	if (req.url === '/favicon.ico') return;
 	let index = fs.readFileSync('./index.html');
-
+	if(index != null) console.log('Index file loaded');
 	const signalCli = spawn('signal-cli', ['link', '-n', '"Signal Transcriber"']);
+	console.log("Starting signal-cli link command");
 
 	signalCli.stdout.on('data', (data) => {
+		console.log('Signal CLI Incoming Data:', data.toString());
 		let link = data.toString().split('\n')[0];
 		index = index.toString().replace('%QRCODE_PLACEHOLDER%', link);
 
@@ -78,7 +95,6 @@ const startClient = () => {
 		}
 	});
 }
-startClient();
 
 
 const sendToWhisperService = (account, filename, attachmentId) => {
@@ -86,11 +102,11 @@ const sendToWhisperService = (account, filename, attachmentId) => {
 	// connect to whispers websocket and send the filepath
 	// on success, delete the file from /shared/ and .local/share/signal-cli/attachments/
 
-	spawnSync('cp', [`~/.local/share/signal-cli/attachments/${attachmentId}`, '/shared/' + attachmentId]);
+	spawnSync('cp', [`~/.local/share/signal-cli/attachments/${attachmentId}`, '/signalshare/' + attachmentId]);
 	let whisperClient = new WebSocket(WHISPER_SERVICE_URL);
 
 	whisperClient.on('open', () => {
-		whisperClient.send("transcribe /shared/" + attachmentId);
+		whisperClient.send("transcribe /signalshare/" + attachmentId);
 	});
 
 	whisperClient.on('message', (data) => {
@@ -98,7 +114,7 @@ const sendToWhisperService = (account, filename, attachmentId) => {
 		//const message =
 
 		console.log('Transcription:', data);
-		fs.unlinkSync('/shared/' + attachmentId);
+		fs.unlinkSync('/signalshare/' + attachmentId);
 		fs.unlinkSync('~/.local/share/signal-cli/attachments/' + attachmentId);
 		spawn('signal-cli', ['send', '--note-to-self', '-m', `"${data}"`, account]);
 		whisperClient.close();

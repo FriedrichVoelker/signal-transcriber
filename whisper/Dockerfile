@@ -1,24 +1,30 @@
-FROM debian:bookworm-slim
+FROM python:3.9.9
 
-USER root
 WORKDIR /app
+USER root
 
 # Install dependencies
 RUN apt-get update && apt-get install -y \
 	ffmpeg \
-	python3-full \
-	python3-pip \
-	python3-setuptools-rust \
 	git \
+	curl \
+	cmake \
+	make \
 	&& rm -rf /var/lib/apt/lists/*
 
-# Create a virtual environment and activate it
-RUN python3 -m venv /opt/venv
+# Install rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+RUN export PATH="$HOME/.cargo/bin:$PATH"
 
-# Install whisper
-COPY . /app
+COPY . .
 
-RUN /opt/venv/bin/pip install -r requirements.txt
-RUN /opt/venv/bin/pip install git+https://github.com/openai/whisper.git 
+RUN pip3 install torch==1.10.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-CMD ["/opt/venv/bin/python", "main.py"]
+RUN pip3 install -r requirements.txt
+RUN pip3 install tiktoken
+RUN pip3 install git+https://github.com/openai/whisper.git 
+
+RUN mkdir /signalshare
+
+CMD ["python3", "main.py"]
+
