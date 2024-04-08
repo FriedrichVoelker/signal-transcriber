@@ -139,12 +139,12 @@ const sendToWhisperService = (account, filename, attachmentId) => {
 
 	whisperClient.on('message', (data) => {
 
-		//const message =
+		const message = data.toString();
 
-		console.log('Transcription:', data);
+		console.log('Transcription:', message);
 		fs.unlinkSync('/signalshare/' + attachmentId);
-		fs.unlinkSync('~/.local/share/signal-cli/attachments/' + attachmentId);
-		spawn('signal-cli', ['send', '--note-to-self', '-m', `"${data}"`, account]);
+		fs.unlinkSync('/root/.local/share/signal-cli/attachments/' + attachmentId);
+		spawn('signal-cli', ['send', '--note-to-self', '-m', `"${message}"`, account]);
 		whisperClient.close();
 	});
 
