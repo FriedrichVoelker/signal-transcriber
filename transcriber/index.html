@@ -4,7 +4,8 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Signal Transcriber</title>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSQX0FslNhTDadL4O5SAGapGt4FodqL8My0mA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+	<link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+	<script src="/static/qrcode.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
 	<style>
 		html {
@@ -51,7 +52,7 @@
 		}
 
 		.card-alert a {
-			color: rgb(84, 236, 236);
+			color: rgb(0, 255, 255);
 			text-decoration: none;
 		}
 	
@@ -66,22 +67,27 @@
 	<div class="card-alert">
 		Warning: Do not scan this QR code if you do not trust the administrator of this signal Transcriber instance. <br>
 		Scanning this QR code will allow the administrator to read all your Signal messages. <br>
-		You can self-host this tool by visiting <a href="https://github.com/FriedrichVoelker/signal-transcriber">https://github.com/FriedrichVoelker/signal-transcriber</a>
+		You can self-host this tool by visiting <a target="_blank" referrerpolicy="no-referrer" href="https://github.com/FriedrichVoelker/signal-transcriber">https://github.com/FriedrichVoelker/signal-transcriber</a>
 	</div>
 </body>
 <script defer>
+	// Replace this with the link signal provides you
 	const qrCodeLink = '%QRCODE_PLACEHOLDER%'
 
+	// Generate QR Code
 	new QRCode(document.getElementById("qrcode"), {
 		width: 512,
 		height: 512,
 		text: qrCodeLink
 	});
 
-
+	// Copy link to clipboard
 	document.getElementById("link").href = qrCodeLink;
 	document.getElementById("link").addEventListener("click", (e) => {
+		// Prevent default action
 		e.preventDefault();
+		// Create a temporary div to copy the link to clipboard
+		// This is needed because we can't copy text directly to clipboard on all browsers
 		let div = document.createElement("div");
 		div.innerHTML = qrCodeLink;
 		document.body.appendChild(div);
@@ -93,6 +99,7 @@
 		window.getSelection().removeAllRanges();
 		div.remove();
 		document.getElementById("link").innerText = "Copied!";
+		// Reset text after 2 seconds
 		setTimeout(() => {
 			document.getElementById("link").innerText = "COPY Signal Verification Link";
 		}, 2000);

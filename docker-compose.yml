@@ -7,8 +7,8 @@ services:
     ports:
       - "7583:7583"
     volumes:
-      - ./signal_save:/root/.local/share/signal-cli
-      - ./shared:/root/.local/share/signal-cli/attachments
+      - ./.signal:/root/.local/share/signal-cli
+      - ./.shared:/root/.local/share/signal-cli/attachments
   node:
     container_name: signal-transcriber_node
     build:
@@ -21,8 +21,11 @@ services:
       - WHISPER_SERVICE_URL=ws://whisper:8765
       - RPC_HOST=signal
       - RPC_PORT=7583
+#      - DEBUG=true # If debug mode should be enabled
+#      - TRANSRCIBE_OWN_MESSAGES=true # If voice Messages sent by the account owner should be transcribed aswell
+#      - NOTIFY_SELF=true # If the account owner should be notified about transcriptions
     volumes:
-      - ./shared:/signalshare
+      - ./.shared:/signalshare
     depends_on:
       - whisper
       - signal
@@ -35,4 +38,5 @@ services:
       - SOCKET_PORT=8765
       - WHISPER_MODEL=medium # tiny, base, small, medium, large (https://github.com/openai/whisper?tab=readme-ov-file#available-models-and-languages)
     volumes:
-      - ./shared:/signalshare
+      - ./.shared:/signalshare
+      - ./.models:/root/.cache/whisper
