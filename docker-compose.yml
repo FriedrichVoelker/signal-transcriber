@@ -1,4 +1,14 @@
 services:
+  signal:
+    container_name: signal-transcriber_signal
+    build:
+      context: signal
+      dockerfile: Dockerfile
+    ports:
+      - "7583:7583"
+    volumes:
+      - ./signal_save:/root/.local/share/signal-cli
+      - ./shared:/root/.local/share/signal-cli/attachments
   node:
     container_name: signal-transcriber_node
     build:
@@ -8,13 +18,14 @@ services:
       - "8080:8080"
     environment:
       - HTTP_PORT=8080
-      - RPC_PORT=7583
       - WHISPER_SERVICE_URL=ws://whisper:8765
+      - RPC_HOST=signal
+      - RPC_PORT=7583
     volumes:
-      - ./transcriber:/root/.local/share/signal-cli
       - ./shared:/signalshare
     depends_on:
       - whisper
+      - signal
   whisper:
     container_name: signal-transcriber_whisper
     build:
@@ -22,6 +33,6 @@ services:
       dockerfile: Dockerfile
     environment:
       - SOCKET_PORT=8765
-      - WHISPER_MODEL=tiny # tiny, base, small, medium, large (https://github.com/openai/whisper?tab=readme-ov-file#available-models-and-languages)
+      - WHISPER_MODEL=medium # tiny, base, small, medium, large (https://github.com/openai/whisper?tab=readme-ov-file#available-models-and-languages)
     volumes:
       - ./shared:/signalshare
