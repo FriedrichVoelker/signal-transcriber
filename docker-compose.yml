@@ -21,7 +21,7 @@ services:
       - WHISPER_SERVICE_URL=ws://whisper:8765
       - RPC_HOST=signal
       - RPC_PORT=7583
-#      - DEBUG=true # If debug mode should be enabled
+      - LOG_LEVEL=DEBUG # Log level for the transcriber. Possible values: DEBUG, INFO, ERROR
 #      - TRANSRCIBE_OWN_MESSAGES=true # If voice Messages sent by the account owner should be transcribed aswell
 #      - NOTIFY_SELF=true # If the account owner should be notified about transcriptions
     volumes:

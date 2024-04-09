@@ -57,8 +57,9 @@ const httpServer = http.createServer((req, res) => {
 
 	// Check if the Signal Client is ready, if not returns 412
 	if(client == null) {
+		log("Signal Client not yet connected. Please try again later.", "ERROR")
 		res.writeHead(412, { 'Content-Type': 'text/html' });
-		res.write("<div style='color:red;'>Signal Client not connected yet. Please try again later.</div>");
+		res.write("<div style='color:red;'>Signal Client not yet connected. Please try again later.</div>");
 		return;
 	}
 
@@ -88,13 +89,13 @@ const httpServer = http.createServer((req, res) => {
 
 // Start the HTTP Server
 httpServer.listen(HTTP_PORT, () => {
-	console.log(`Server running at http://127.0.0.1:${HTTP_PORT}/`);
+	log(`Server running at http://127.0.0.1:${HTTP_PORT}/`, "INFO");
 });
 
 // Start the RPC Client and connect to the Signal Client
 const startClient = () => {
 	client.connect(RPC_PORT, RPC_HOST, () => {
-	  	console.log('connected to server!');
+		log('Connected to Signal Client', "INFO");
 	});
 
 	// Error Handling
@@ -112,7 +113,7 @@ const startClient = () => {
 
 	// If the Signal Client ends the connection, reconnect every 5 seconds
 	client.on("end", () => {
-		log('Connection ended. Reconnecting in 5 seconds...', "ERROR")
+		log('Connection ended. Retrying in 5 seconds...', "ERROR")
 		setTimeout(() => {
 			startClient();
 		}, 5000);
@@ -120,7 +121,7 @@ const startClient = () => {
 
 	// If the Signal Client closes the connection, reconnect every 5 seconds
 	client.on("close", () => {
-		log('Connection closed. Reconnecting in 5 seconds...', "ERROR")
+		log('Connection closed. Retrying in 5 seconds...', "ERROR")
 		setTimeout(() => {
 			startClient();
 		}, 5000);
