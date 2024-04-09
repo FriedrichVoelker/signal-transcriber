@@ -49,6 +49,11 @@
 			width: 50%;
 			margin: 0 auto;
 		}
+
+		.card-alert a {
+			color: rgb(84, 236, 236);
+			text-decoration: none;
+		}
 	
 	
 	</style>
@@ -56,10 +61,12 @@
 <body>
 	<div id="qrcode" class="qrcode"></div>
 
-	<a href="" id="link" class="link"></a>
+	<a href="" id="link" class="link">COPY Signal Verification Link</a>
 
 	<div class="card-alert">
-		Test123
+		Warning: Do not scan this QR code if you do not trust the administrator of this signal Transcriber instance. <br>
+		Scanning this QR code will allow the administrator to read all your Signal messages. <br>
+		You can self-host this tool by visiting <a href="https://github.com/FriedrichVoelker/signal-transcriber">https://github.com/FriedrichVoelker/signal-transcriber</a>
 	</div>
 </body>
 <script defer>
@@ -73,7 +80,23 @@
 
 
 	document.getElementById("link").href = qrCodeLink;
-	document.getElementById("link").innerText = qrCodeLink;
+	document.getElementById("link").addEventListener("click", (e) => {
+		e.preventDefault();
+		let div = document.createElement("div");
+		div.innerHTML = qrCodeLink;
+		document.body.appendChild(div);
+		let range = document.createRange();
+		range.selectNode(div);
+		window.getSelection().removeAllRanges();
+		window.getSelection().addRange(range);
+		document.execCommand("copy");
+		window.getSelection().removeAllRanges();
+		div.remove();
+		document.getElementById("link").innerText = "Copied!";
+		setTimeout(() => {
+			document.getElementById("link").innerText = "COPY Signal Verification Link";
+		}, 2000);
+	});
 
 </script>
 

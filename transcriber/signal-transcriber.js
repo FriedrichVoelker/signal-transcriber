@@ -23,6 +23,7 @@ const client = new net.Socket();
 let messageId = 1;
 
 let spawns = [];
+let finished = [];
 
 let handledIds = [];
 
@@ -40,7 +41,6 @@ const httpServer = http.createServer((req, res) => {
 
 
 	let spawnId = messageId++;
-	let spawnReplied = false;
 
 	// Start signal-cli link command
 	let x = send(JSON.stringify({
@@ -57,21 +57,6 @@ const httpServer = http.createServer((req, res) => {
 
 	console.log("Starting signal-cli link command");
 
-	// client.on('data', (data) => {
-	// 	if(isStringParseable(data)){
-	// 		let parsedData = JSON.parse(data.toString());
-	// 		if(parsedData.id === spawnId){
-	// 			spawnReplied = true;
-	// 			let link = parsedData.result;
-	// 			index = index.toString().replace('%QRCODE_PLACEHOLDER%', link);
-
-	// 			res.writeHead(200, { 'Content-Type': 'text/html' });
-	// 			res.write(index);
-	// 			res.end();
-	// 			return;
-	// 		}
-	// 	}
-	// });
 
 	setTimeout(() => {
 		if(spawns[spawnId] != null){
@@ -80,20 +65,6 @@ const httpServer = http.createServer((req, res) => {
 			return;
 		}
 	}, 10000);
-
-
-	// const signalCli = spawn('signal-cli', ['link', '-n', '"Signal Transcriber"']);
-
-	// signalCli.stdout.on('data', (data) => {
-	// 	console.log('Signal CLI Incoming Data:', data.toString());
-	// 	let link = data.toString().split('\n')[0];
-	// 	index = index.toString().replace('%QRCODE_PLACEHOLDER%', link);
-
-	// 	res.writeHead(200, { 'Content-Type': 'text/html' });
-	// 	res.write(index);
-	// 	res.end();
-	// 	return;
-	// });
 });
 
 httpServer.listen(HTTP_PORT, () => {
@@ -125,41 +96,7 @@ const startClient = () => {
 		console.log('Connection closed. Reconnecting in 5 seconds...');
 	});
 
-	client.on('data', (data) => {rpcHandler(data)});
-
-	// client.on('data', (data) => {
-	// 	console.log('Data:', data.toString());
-	// 	if(isStringParseable(data)){
-	// 		let parsedData = JSON.parse(data.toString());
-	// 		let envelope = parsedData.params.envelope;
-	// 		if(envelope.typingMessage || envelope.receiptMessage) return;
-	// 		if(DEBUG){
-	// 			fs.writeFileSync("./json_dump/" + envelope.sourceName + " - " + envelope.timestamp + '.json', JSON.stringify(parsedData, null, 4));
-	// 		}
-	// 		try{
-	// 			if(envelope.syncMessage && envelope.syncMessage.sentMessage && envelope.syncMessage.sentMessage.attachments.length > 0){
-	// 				envelope.syncMessage.sentMessage.attachments.forEach((attachment) => {
-	// 					if(attachment.contentType === 'audio/aac'){
-	// 						console.log('Audio Attachment:', attachment.id);
-	// 						sendToWhisperService(parsedData.params.account, envelope.sourceName, attachment.id)
-	// 					}
-	// 				});
-	// 			}
-
-	// 			if(envelope.dataMessage && envelope.dataMessage.attachments && envelope.dataMessage.attachments.length > 0){
-	// 				envelope.dataMessage.attachments.forEach((attachment) => {
-	// 					if(attachment.contentType === 'audio/aac'){
-	// 						console.log('Audio Attachment:', attachment.id);
-	// 						sendToWhisperService(parsedData.params.account, envelope.sourceName, attachment.id)
-	// 					}
-	// 				});
-	// 			}
-
-	// 		}catch(e){
-	// 			console.log('Error', e);
-	// 		}
-	// 	}
-	// });
+	client.on('data', rpcHandler);
 }
 
 
@@ -170,9 +107,6 @@ const sendToWhisperService = (account, sender, attachmentId) => {
 
 	console.log('Sending to Whisper Service:', attachmentId, sender, account);
 
-	// Change this to json-rpc instead of spawn
-	// const msg = spawn('signal-cli', ['send', '--note-to-self', '-m', `"${sender} Received Voicenote ${attachmentId} starting transcription"`, `"${account}"`]);
-
 	// Send message over JSON-RPC
 	send(JSON.stringify({
 		jsonrpc: '2.0',
@@ -180,12 +114,10 @@ const sendToWhisperService = (account, sender, attachmentId) => {
 		params: {
 			noteToSelf: true,
 			account: account,
-			message: `Received Voicenote ${attachmentId} by ${sender} starting transcription`
+			message: `Received Voicenote by ${sender}. Starting transcription`
 		},
 		id: messageId++
 	}));
-	
-	// fs.copyFileSync(ATTACHMENTDIR + attachmentId, SHAREDIR + attachmentId);
 
 	let whisperClient = new WebSocket(WHISPER_SERVICE_URL);
 
@@ -199,8 +131,6 @@ const sendToWhisperService = (account, sender, attachmentId) => {
 
 		console.log('Transcription:', message);
 		fs.unlinkSync(SHAREDIR + attachmentId);
-		// fs.unlinkSync(ATTACHMENTDIR + attachmentId);
-		// spawn('signal-cli', ['send', '--note-to-self', '-m', `"${message}"`, account]);
 
 		send(JSON.stringify({
 			jsonrpc: '2.0',
@@ -231,24 +161,29 @@ const isStringParseable = (str) => {
 
 const rpcHandler = (data) => {
 	let dataToString = data.toString();
-	console.log('Data:', dataToString);
+	console.log(dataToString);
 	if(isStringParseable(data)){
 		let parsedData = JSON.parse(dataToString);
 
-		if(handledIds.includes(parsedData.id)) return;
+		if(parsedData.id != null && handledIds.includes(parsedData.id)) return;
 		handledIds.push(parsedData.id);
 
 		if(spawns[parsedData.id] != null){
 			let res = spawns[parsedData.id];
 			let link = parsedData.result.deviceLinkUri;
 
+			let finishedId = messageId++;
+
+			finished.push(finishedId);
+
 			send(JSON.stringify({
 				jsonrpc: '2.0',
 				method: 'finishLink',
 				params: {
 					deviceLinkUri: link,
+					deviceName: APPLICATION_NAME
 				},
-				id: messageId++
+				id: finishedId
 			}))
 
 			index = index.toString().replace('%QRCODE_PLACEHOLDER%', link);
@@ -260,6 +195,24 @@ const rpcHandler = (data) => {
 			return;
 		}
 
+		if(finished[parsedData.id] != null) {
+
+			// subscribeReceive
+			// {"jsonrpc":"2.0","result":{"number":"+0123456789"},"id":2}
+
+			send(JSON.stringify({
+				jsonrpc: '2.0',
+				method: 'subscribeReceive',
+				params: {
+					account: parsedData.result.number
+				},
+				id: messageId++
+			}))
+
+			delete finished[parsedData.id];
+			return;
+		}
+
 		if(parsedData.params == null || parsedData.params.envelope == null) return;
 		let envelope = parsedData.params.envelope;
 		if(envelope.typingMessage || envelope.receiptMessage) return;
@@ -267,6 +220,9 @@ const rpcHandler = (data) => {
 			fs.writeFileSync("./json_dump/" + envelope.sourceName + " - " + envelope.timestamp + '.json', JSON.stringify(parsedData, null, 4));
 		}
 		try{
+
+			// {"jsonrpc":"2.0","method":"receive","params":{"envelope":{"source":"+0123456789","sourceNumber":"+0123456789","sourceUuid":"48503b18-249c-4ed6-8ea3-44400bd526f4","sourceName":"Me","sourceDevice":1,"timestamp":1712657587316,"syncMessage":{"sentMessage":{"destination":"+0123456789","destinationNumber":"+0123456789","destinationUuid":"48503b18-249c-4ed6-8ea3-44400bd526f4","timestamp":1712657587316,"message":null,"expiresInSeconds":0,"viewOnce":false,"attachments":[{"contentType":"audio/aac","filename":null,"id":"p2aZ-rLtF5kFC2c1zuzo.aac","size":11956,"width":null,"height":null,"caption":null,"uploadTimestamp":1712657587723}]}}},"account":"+0123456789"}}
+
 			if(envelope.syncMessage && 
 				envelope.syncMessage.sentMessage && 
 				envelope.syncMessage.sentMessage.attachments &&
