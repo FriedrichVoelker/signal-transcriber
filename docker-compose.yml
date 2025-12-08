@@ -9,6 +9,10 @@ services:
     volumes:
       - ./.signal:/root/.local/share/signal-cli
       - ./.shared:/root/.local/share/signal-cli/attachments
+    networks:
+      transcriber:
+        ipv4_address: 10.10.0.6
+
   node:
     container_name: signal-transcriber_node
     build:
@@ -18,17 +22,23 @@ services:
       - "8080:8080"
     environment:
       - HTTP_PORT=8080
-      - WHISPER_SERVICE_URL=ws://whisper:8765
-      - RPC_HOST=signal
+      - WHISPER_SERVICE_URL=ws://10.10.0.7:8765
+      - RPC_HOST=10.10.0.6
       - RPC_PORT=7583
       - LOG_LEVEL=DEBUG # Log level for the transcriber. Possible values: DEBUG, INFO, ERROR
-#      - TRANSRCIBE_OWN_MESSAGES=true # If voice Messages sent by the account owner should be transcribed aswell
-#      - NOTIFY_SELF=true # If the account owner should be notified about transcriptions
+      # - TRANSRCIBE_OWN_MESSAGES=true # If voice Messages sent by the account owner should be transcribed aswell
+      # - NOTIFY_SELF=true # If the account owner should be notified about transcriptions
     volumes:
       - ./.shared:/signalshare
     depends_on:
-      - whisper
-      - signal
+      whisper:
+        condition: service_started
+      signal:
+          condition: service_healthy
+    networks:
+      transcriber:
+        ipv4_address: 10.10.0.5
+
   whisper:
     container_name: signal-transcriber_whisper
     build:
@@ -36,7 +46,19 @@ services:
       dockerfile: Dockerfile
     environment:
       - SOCKET_PORT=8765
-      - WHISPER_MODEL=medium # tiny, base, small, medium, large (https://github.com/openai/whisper?tab=readme-ov-file#available-models-and-languages)
+      - WHISPER_MODEL=turbo # tiny, base, small, medium, large, turbo (https://github.com/openai/whisper?tab=readme-ov-file#available-models-and-languages)
     volumes:
       - ./.shared:/signalshare
       - ./.models:/root/.cache/whisper
+    networks:
+      transcriber:
+        ipv4_address: 10.10.0.7
+
+
+networks:
+  transcriber:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.0.0/16
+          gateway: 10.10.10.1

@@ -2,3 +2,6 @@ json_dump
 node_modules
 .vscode
 Dockerfile_*
+.signal
+.shared
+.models

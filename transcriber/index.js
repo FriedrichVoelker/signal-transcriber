@@ -19,6 +19,9 @@ const SHAREDIR = "/signalshare/";
 
 // Create a new Socket
 const client = new net.Socket();
+// Whetver the client is connected or not
+let isConnected = false
+
 
 // Message ID for JSON-RPC requests
 let messageId = 1;
@@ -94,13 +97,18 @@ httpServer.listen(HTTP_PORT, () => {
 
 // Start the RPC Client and connect to the Signal Client
 const startClient = () => {
+
+	if(isConnected) return;
+
 	client.connect(RPC_PORT, RPC_HOST, () => {
 		log('Connected to Signal Client', "INFO");
+		isConnected = true
 	});
 
 	// Error Handling
 	// If the Signal Client refuses the connection, retry every 5 seconds
 	client.on('error', (err) => {
+		isConnected = false
 		if(err.code === 'ECONNREFUSED'){
 			log('JSON-RPC Server refused Connection. Retrying in 5 seconds...', "DEBUG")
 			setTimeout(() => {
@@ -113,6 +121,7 @@ const startClient = () => {
 
 	// If the Signal Client ends the connection, reconnect every 5 seconds
 	client.on("end", () => {
+		isConnected = false
 		log('Connection ended. Retrying in 5 seconds...', "ERROR")
 		setTimeout(() => {
 			startClient();
@@ -121,6 +130,7 @@ const startClient = () => {
 
 	// If the Signal Client closes the connection, reconnect every 5 seconds
 	client.on("close", () => {
+		isConnected = false
 		log('Connection closed. Retrying in 5 seconds...', "ERROR")
 		setTimeout(() => {
 			startClient();
