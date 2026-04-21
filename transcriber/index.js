@@ -13,6 +13,7 @@ const RPC_HOST = process.env.RPC_HOST || 'signal';
 const APPLICATION_NAME = process.env.APPLICATION_NAME || 'Signal Transcriber';
 const NOTIFY_SELF = process.env.NOTIFY_SELF  === "true" || false;
 const TRANSRCIBE_OWN_MESSAGES = process.env.TRANSRCIBE_OWN_MESSAGES === "true" || false;
+const TRANSCRIPTION_MODE = process.env.TRANSCRIPTION_MODE || 'private'; // 'private' = Note to Self, 'inline' = reply in thread
 
 // Constants
 const SHAREDIR = "/signalshare/";
@@ -103,6 +104,8 @@ const startClient = () => {
 	client.connect(RPC_PORT, RPC_HOST, () => {
 		log('Connected to Signal Client', "INFO");
 		isConnected = true
+		// Load contacts and groups on startup
+		sendRPC('listAccounts', {});
 	});
 
 	// Error Handling
@@ -137,24 +140,74 @@ const startClient = () => {
 		}, 5000);
 	});
 	
-	// Handle incoming data from the Signal Client
-	client.on('data', rpcHandler);
+	// Handle incoming data from the Signal Client with line buffering
+	let rpcBuffer = '';
+	client.on('data', (data) => {
+		rpcBuffer += data.toString();
+		let lines = rpcBuffer.split('\n');
+		// Keep the last incomplete line in the buffer
+		rpcBuffer = lines.pop();
+		lines.forEach((line) => {
+			if (line.trim()) rpcHandler(Buffer.from(line));
+		});
+	});
 }
 
+// Contact and group name lookup cache
+let contactMap = {}; // uuid/number -> name
+let groupMap = {};   // groupId -> name
 
-const sendToWhisperService = (account, sender, attachmentId) => {
+const loadContactsAndGroups = (account) => {
+	// Load contacts (stagger requests to avoid TCP chunk merging)
+	sendRPC('listContacts', { account: account });
+	setTimeout(() => sendRPC('listGroups', { account: account }), 1000);
+};
+
+const resolveContactName = (identifier) => {
+	if (!identifier) return null;
+	return contactMap[identifier] || null;
+};
+
+const resolveGroupName = (groupId) => {
+	if (!groupId) return null;
+	return groupMap[groupId] || null;
+};
+
+const sendToWhisperService = (account, sender, attachmentId, recipient, direction, groupInfo) => {
 	// connect to whispers websocket and send the filepath
 	// on success, delete the file from /shared/ to free up space
+	// direction: 'sent' = I sent this, 'received' = someone sent it to me
 
 	log(`Received Voicenote ${attachmentId} by ${sender}. Starting transcription for ${account}`, "DEBUG");
 
-	// Send message over JSON-RPC to the own account
-	sendRPC("send", { 
-		noteToSelf: true, 
-		account: account, 
-		message: `Received Voicenote by ${sender}. Starting transcription`, 
-		notifySelf: NOTIFY_SELF }
-	)
+	// Build the send params based on TRANSCRIPTION_MODE
+	const buildSendParams = (message) => {
+		if (TRANSCRIPTION_MODE === 'inline' && recipient && recipient !== account) {
+			// Inline mode: send transcription in the same thread (other person sees it)
+			return { recipient: recipient, account: account, message: message, notifySelf: NOTIFY_SELF };
+		}
+		// Private mode: always send to Note to Self
+		return { noteToSelf: true, account: account, message: message, notifySelf: NOTIFY_SELF };
+	};
+
+	// Format message with context
+	const formatMessage = (text) => {
+		if (TRANSCRIPTION_MODE === 'private' && recipient && recipient !== account) {
+			let recipientName = resolveContactName(recipient) || recipient;
+			let groupName = groupInfo ? (resolveGroupName(groupInfo) || 'group') : null;
+			if (direction === 'sent') {
+				let dest = groupName ? groupName : recipientName;
+				return `[Voice to ${dest}]: ${text}`;
+			}
+			let prefix = `[Voice from ${sender}]`;
+			if (groupName) prefix = `[Voice from ${sender} in ${groupName}]`;
+			return `${prefix}: ${text}`;
+		}
+		return text;
+	};
+
+	// Send notification
+	sendRPC("send", buildSendParams(formatMessage(`Transcribing...`)))
 
 	let whisperClient = new WebSocket(WHISPER_SERVICE_URL);
 
@@ -170,13 +223,8 @@ const sendToWhisperService = (account, sender, attachmentId) => {
 		log(`Transcription for ${attachmentId} by ${sender} finished. Message: ${message}`, "DEBUG");
 		fs.unlinkSync(SHAREDIR + attachmentId);
 
-		// Send message over JSON-RPC to the own account
-		sendRPC("send", { 
-			noteToSelf: true, 
-			account: account, 
-			message: `Transcribed Message: ${message}`, 
-			notifySelf: NOTIFY_SELF }
-		)
+		// Send transcription
+		sendRPC("send", buildSendParams(formatMessage(message)))
 
 		// Close the connection to the whisper service
 		whisperClient.close();
@@ -208,6 +256,14 @@ const rpcHandler = (data) => {
 		if(spawns[parsedData.id] != null){
 			// Get the HTTPResponse and the deviceLinkUri
 			let res = spawns[parsedData.id];
+			if(parsedData.error || !parsedData.result){
+				log('ERROR', `Link request failed: ${parsedData.error ? parsedData.error.message : 'no result'}`);
+				res.writeHead(500, { 'Content-Type': 'text/plain' });
+				res.write('Link request failed. Please try again.');
+				res.end();
+				delete spawns[parsedData.id];
+				return;
+			}
 			let link = parsedData.result.deviceLinkUri;
 
 			let finishedId = messageId++;
@@ -236,9 +292,42 @@ const rpcHandler = (data) => {
 
 			// Send subscribeReceive to subscribe to incoming messages
 			sendRPC('subscribeReceive', { account: parsedData.result.number });
+			// Load contacts and groups for name resolution
+			loadContactsAndGroups(parsedData.result.number);
 
 			// Delete the finishedId from the finished array
 			delete finished[parsedData.id];
+			return;
+		}
+
+		// Handle listAccounts response - load contacts/groups for each account
+		if(parsedData.result && Array.isArray(parsedData.result) && parsedData.result[0] && parsedData.result[0].number !== undefined && !parsedData.result[0].profileSharing && !parsedData.result[0].members) {
+			// Distinguish from contacts: accounts only have 'number', not 'profileSharing' or 'members'
+			if (Object.keys(parsedData.result[0]).length <= 2) {
+				parsedData.result.forEach((acct) => {
+					if (acct.number) loadContactsAndGroups(acct.number);
+				});
+				return;
+			}
+		}
+
+		// Handle listContacts response - populate contact name cache
+		if(parsedData.result && Array.isArray(parsedData.result) && parsedData.result[0] && parsedData.result[0].number !== undefined && parsedData.result[0].profileSharing !== undefined) {
+			parsedData.result.forEach((contact) => {
+				let name = contact.name || (contact.profile && (contact.profile.givenName || '') + ' ' + (contact.profile.familyName || '')).trim() || null;
+				if (name && contact.uuid) contactMap[contact.uuid] = name;
+				if (name && contact.number) contactMap[contact.number] = name;
+			});
+			log(`Loaded ${Object.keys(contactMap).length} contacts into cache`, "DEBUG");
+			return;
+		}
+
+		// Handle listGroups response - populate group name cache
+		if(parsedData.result && Array.isArray(parsedData.result) && parsedData.result[0] && parsedData.result[0].id !== undefined && parsedData.result[0].members !== undefined) {
+			parsedData.result.forEach((group) => {
+				if (group.name && group.id) groupMap[group.id] = group.name;
+			});
+			log(`Loaded ${Object.keys(groupMap).length} groups into cache`, "DEBUG");
 			return;
 		}
 
@@ -250,29 +339,31 @@ const rpcHandler = (data) => {
 
 			// {"jsonrpc":"2.0","method":"receive","params":{"envelope":{"source":"+0123456789","sourceNumber":"+0123456789","sourceUuid":"48503b18-249c-4ed6-8ea3-44400bd526f4","sourceName":"Me","sourceDevice":1,"timestamp":1712657587316,"syncMessage":{"sentMessage":{"destination":"+0123456789","destinationNumber":"+0123456789","destinationUuid":"48503b18-249c-4ed6-8ea3-44400bd526f4","timestamp":1712657587316,"message":null,"expiresInSeconds":0,"viewOnce":false,"attachments":[{"contentType":"audio/aac","filename":null,"id":"p2aZ-rLtF5kFC2c1zuzo.aac","size":11956,"width":null,"height":null,"caption":null,"uploadTimestamp":1712657587723}]}}},"account":"+0123456789"}}
 
-			// If the envelope is sent by the own account and TRANSRCIBE_OWN_MESSAGES is enabled, check if the message has an audio attachment 
-			if(TRANSRCIBE_OWN_MESSAGES && envelope.syncMessage && 
-				envelope.syncMessage.sentMessage && 
+			// If the envelope is sent by the own account and TRANSRCIBE_OWN_MESSAGES is enabled, check if the message has an audio attachment
+			if(TRANSRCIBE_OWN_MESSAGES && envelope.syncMessage &&
+				envelope.syncMessage.sentMessage &&
 				envelope.syncMessage.sentMessage.attachments &&
 				envelope.syncMessage.sentMessage.attachments.length > 0){
+				let sentMsg = envelope.syncMessage.sentMessage;
+				let destination = sentMsg.destinationUuid || sentMsg.destination;
+				let groupId = sentMsg.groupInfo && sentMsg.groupInfo.groupId || null;
 				envelope.syncMessage.sentMessage.attachments.forEach((attachment) => {
-					if(attachment.contentType === 'audio/aac'){
-						// If the attachment is an audio attachment, send it to the whisper service
+					if(attachment.contentType.startsWith('audio/')){
 						log(`Found Audio Attachment ${attachment.id} by ${envelope.sourceName}. Starting transcription for ${parsedData.params.account}`, "DEBUG")
-						sendToWhisperService(parsedData.params.account, envelope.sourceName, attachment.id)
+						sendToWhisperService(parsedData.params.account, envelope.sourceName, attachment.id, destination, 'sent', groupId)
 					}
 				});
 			}
 
 			// If the envelope is sent by another account, check if the message has an audio attachment
-			if(envelope.dataMessage && 
-				envelope.dataMessage.attachments && 
+			if(envelope.dataMessage &&
+				envelope.dataMessage.attachments &&
 				envelope.dataMessage.attachments.length > 0){
+				let groupId = envelope.dataMessage.groupInfo && envelope.dataMessage.groupInfo.groupId || null;
 				envelope.dataMessage.attachments.forEach((attachment) => {
-					if(attachment.contentType === 'audio/aac'){
-						// If the attachment is an audio attachment, send it to the whisper service
+					if(attachment.contentType.startsWith('audio/')){
 						log(`Found Audio Attachment ${attachment.id} by ${envelope.sourceName}. Starting transcription for ${parsedData.params.account}`, "DEBUG")
-						sendToWhisperService(parsedData.params.account, envelope.sourceName, attachment.id)
+						sendToWhisperService(parsedData.params.account, envelope.sourceName, attachment.id, envelope.sourceNumber || envelope.sourceUuid, 'received', groupId)
 					}
 				});
 			}

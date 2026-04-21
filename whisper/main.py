@@ -10,7 +10,7 @@ print(f"Using model: {WHISPER_MODEL}")
 model = whisper.load_model(WHISPER_MODEL)
 
 
-async def serveSocket(websocket, path):
+async def serveSocket(websocket):
 	try:
 		async for message in websocket:
 			# if messages starts with transcribe
