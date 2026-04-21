@@ -1,6 +1,7 @@
 services:
   signal:
     container_name: signal-transcriber_signal
+    platform: linux/amd64
     build:
       context: signal
       dockerfile: Dockerfile

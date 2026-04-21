@@ -208,6 +208,14 @@ const rpcHandler = (data) => {
 		if(spawns[parsedData.id] != null){
 			// Get the HTTPResponse and the deviceLinkUri
 			let res = spawns[parsedData.id];
+			if(parsedData.error || !parsedData.result){
+				log('ERROR', `Link request failed: ${parsedData.error ? parsedData.error.message : 'no result'}`);
+				res.writeHead(500, { 'Content-Type': 'text/plain' });
+				res.write('Link request failed. Please try again.');
+				res.end();
+				delete spawns[parsedData.id];
+				return;
+			}
 			let link = parsedData.result.deviceLinkUri;
 
 			let finishedId = messageId++;
