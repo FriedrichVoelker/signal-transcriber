@@ -27,10 +27,11 @@ RUN if [ "$(uname -m)" = "x86_64" ]; then \
 
 # Extract and set up Java
 RUN tar -xvf jdk-25_linux_bin.tar.gz -C /opt \
-    && ln -sf /opt/jdk-25*/bin/java /usr/local/bin/ \
-    && ln -sf /opt/jdk-25*/bin/javac /usr/local/bin/
+    && ln -sfn /opt/jdk-25* /opt/jdk-25 \
+    && ln -sf /opt/jdk-25/bin/java /usr/local/bin/ \
+    && ln -sf /opt/jdk-25/bin/javac /usr/local/bin/
 
-ENV JAVA_HOME=/opt/jdk-25.0.2
+ENV JAVA_HOME=/opt/jdk-25
 
 # Install signal-cli
 RUN export VERSION=${SIGNAL_CLI_VERSION} \

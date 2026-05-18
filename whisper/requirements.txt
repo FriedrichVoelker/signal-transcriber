@@ -1,4 +1,5 @@
 setuptools-rust
 setuptools
+numpy<2
 websockets
 git+https://github.com/openai/whisper.git
