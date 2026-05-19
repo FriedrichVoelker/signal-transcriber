@@ -13,14 +13,17 @@ const RPC_HOST = process.env.RPC_HOST || 'signal';
 const APPLICATION_NAME = process.env.APPLICATION_NAME || 'Signal Transcriber';
 const NOTIFY_SELF = process.env.NOTIFY_SELF  === "true" || false;
 const TRANSRCIBE_OWN_MESSAGES = process.env.TRANSRCIBE_OWN_MESSAGES === "true" || false;
+const SIGNAL_ACCOUNT = process.env.SIGNAL_ACCOUNT || null;
 
 // Constants
 const SHAREDIR = "/signalshare/";
 
-// Create a new Socket
-const client = new net.Socket();
-// Whetver the client is connected or not
-let isConnected = false
+// Signal JSON-RPC socket state.
+let client = null;
+let isConnected = false;
+let isConnecting = false;
+let reconnectTimer = null;
+const subscribedAccounts = new Set();
 
 
 // Message ID for JSON-RPC requests
@@ -29,11 +32,12 @@ let messageId = 1;
 // Array to store the spawned RPC Requests for adding new devices
 let spawns = [];
 let finished = [];
+let accountLists = [];
 // Array to store the handled IDs to prevent double handling
 let handledIds = [];
 
-// Load the index.html
-let index = fs.readFileSync('./index.html');
+// Load the index.html template once and render a fresh link for each request.
+const indexTemplate = fs.readFileSync('./index.html', 'utf8');
 
 // Start HTTP Server to listen for incoming connections
 const httpServer = http.createServer((req, res) => {
@@ -59,7 +63,7 @@ const httpServer = http.createServer((req, res) => {
 	}
 
 	// Check if the Signal Client is ready, if not returns 412
-	if(client == null) {
+	if(client == null || !isConnected) {
 		log("Signal Client not yet connected. Please try again later.", "ERROR")
 		res.writeHead(412, { 'Content-Type': 'text/html' });
 		res.write("<div style='color:red;'>Signal Client not yet connected. Please try again later.</div>");
@@ -98,22 +102,34 @@ httpServer.listen(HTTP_PORT, () => {
 // Start the RPC Client and connect to the Signal Client
 const startClient = () => {
 
-	if(isConnected) return;
+	if(isConnected || isConnecting) return;
 
+	client = new net.Socket();
+	isConnecting = true;
 	client.connect(RPC_PORT, RPC_HOST, () => {
 		log('Connected to Signal Client', "INFO");
-		isConnected = true
+		isConnected = true;
+		isConnecting = false;
+		if(reconnectTimer) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = null;
+		}
+		if(SIGNAL_ACCOUNT) {
+			subscribeReceive(SIGNAL_ACCOUNT);
+		}
+		let listAccountsId = messageId++;
+		accountLists[listAccountsId] = true;
+		sendRPC('listAccounts', {}, listAccountsId);
 	});
 
 	// Error Handling
 	// If the Signal Client refuses the connection, retry every 5 seconds
 	client.on('error', (err) => {
-		isConnected = false
+		isConnected = false;
+		isConnecting = false;
 		if(err.code === 'ECONNREFUSED'){
 			log('JSON-RPC Server refused Connection. Retrying in 5 seconds...', "DEBUG")
-			setTimeout(() => {
-				startClient();
-			}, 5000);
+			scheduleReconnect();
 		}else{
 			log(err, "ERROR");
 		}
@@ -121,24 +137,35 @@ const startClient = () => {
 
 	// If the Signal Client ends the connection, reconnect every 5 seconds
 	client.on("end", () => {
-		isConnected = false
+		isConnected = false;
+		isConnecting = false;
 		log('Connection ended. Retrying in 5 seconds...', "ERROR")
-		setTimeout(() => {
-			startClient();
-		}, 5000);
+		scheduleReconnect();
 	});
 
 	// If the Signal Client closes the connection, reconnect every 5 seconds
 	client.on("close", () => {
-		isConnected = false
+		isConnected = false;
+		isConnecting = false;
 		log('Connection closed. Retrying in 5 seconds...', "ERROR")
-		setTimeout(() => {
-			startClient();
-		}, 5000);
+		scheduleReconnect();
 	});
 	
 	// Handle incoming data from the Signal Client
 	client.on('data', rpcHandler);
+}
+
+const scheduleReconnect = () => {
+	if(client) {
+		client.removeAllListeners();
+		client.destroy();
+		client = null;
+	}
+	if(reconnectTimer) return;
+	reconnectTimer = setTimeout(() => {
+		reconnectTimer = null;
+		startClient();
+	}, 5000);
 }
 
 
@@ -208,17 +235,25 @@ const rpcHandler = (data) => {
 		if(spawns[parsedData.id] != null){
 			// Get the HTTPResponse and the deviceLinkUri
 			let res = spawns[parsedData.id];
+			if(parsedData.error || !parsedData.result){
+				log('ERROR', `Link request failed: ${parsedData.error ? parsedData.error.message : 'no result'}`);
+				res.writeHead(500, { 'Content-Type': 'text/plain' });
+				res.write('Link request failed. Please try again.');
+				res.end();
+				delete spawns[parsedData.id];
+				return;
+			}
 			let link = parsedData.result.deviceLinkUri;
 
 			let finishedId = messageId++;
 
-			finished.push(finishedId);
+			finished[finishedId] = true;
 
 			// Send finishLink to finish the provisioning of the new device
 			sendRPC('finishLink', { deviceLinkUri: link, deviceName: APPLICATION_NAME}, finishedId);
 
 			// Replace the %QRCODE_PLACEHOLDER% in the index.html with the deviceLinkUri
-			index = index.toString().replace('%QRCODE_PLACEHOLDER%', link);
+			const index = indexTemplate.replace('%QRCODE_PLACEHOLDER%', link);
 			// Write the index.html to the response
 			res.writeHead(200, { 'Content-Type': 'text/html' });
 			res.write(index);
@@ -230,6 +265,11 @@ const rpcHandler = (data) => {
 
 		// If the parsed data is a response to a finishLink command
 		if(finished[parsedData.id] != null) {
+			if(parsedData.error || !parsedData.result){
+				log(`Link completion failed: ${parsedData.error ? parsedData.error.message : 'no result'}`, "ERROR");
+				delete finished[parsedData.id];
+				return;
+			}
 
 			// parsedData should look like this:
 			// {"jsonrpc":"2.0","result":{"number":"+0123456789"},"id":2}
@@ -242,9 +282,27 @@ const rpcHandler = (data) => {
 			return;
 		}
 
-		// Check if the parsed data has the params and envelope object
-		if(parsedData.params == null || parsedData.params.envelope == null) return;
-		let envelope = parsedData.params.envelope;
+		// Subscribe to all accounts that are already linked when the service starts.
+		if(accountLists[parsedData.id] != null) {
+			if(parsedData.error || !Array.isArray(parsedData.result)){
+				log(`Account list failed: ${parsedData.error ? parsedData.error.message : 'no result'}`, "ERROR");
+				delete accountLists[parsedData.id];
+				return;
+			}
+			parsedData.result.forEach((account) => {
+				if(account.number) {
+					subscribeReceive(account.number);
+				}
+			});
+			delete accountLists[parsedData.id];
+			return;
+		}
+
+		// Signal JSON-RPC subscription events may wrap payloads in params.result.
+		const receiveParams = parsedData.params && parsedData.params.result ? parsedData.params.result : parsedData.params;
+		if(receiveParams == null || receiveParams.envelope == null) return;
+		let envelope = receiveParams.envelope;
+		let account = receiveParams.account;
 		if(envelope.typingMessage || envelope.receiptMessage) return;
 		try{
 
@@ -256,10 +314,10 @@ const rpcHandler = (data) => {
 				envelope.syncMessage.sentMessage.attachments &&
 				envelope.syncMessage.sentMessage.attachments.length > 0){
 				envelope.syncMessage.sentMessage.attachments.forEach((attachment) => {
-					if(attachment.contentType === 'audio/aac'){
+					if(isAudioAttachment(attachment)){
 						// If the attachment is an audio attachment, send it to the whisper service
-						log(`Found Audio Attachment ${attachment.id} by ${envelope.sourceName}. Starting transcription for ${parsedData.params.account}`, "DEBUG")
-						sendToWhisperService(parsedData.params.account, envelope.sourceName, attachment.id)
+						log(`Found Audio Attachment ${attachment.id} by ${envelope.sourceName}. Starting transcription for ${account}`, "DEBUG")
+						sendToWhisperService(account, envelope.sourceName, attachment.id)
 					}
 				});
 			}
@@ -269,10 +327,10 @@ const rpcHandler = (data) => {
 				envelope.dataMessage.attachments && 
 				envelope.dataMessage.attachments.length > 0){
 				envelope.dataMessage.attachments.forEach((attachment) => {
-					if(attachment.contentType === 'audio/aac'){
+					if(isAudioAttachment(attachment)){
 						// If the attachment is an audio attachment, send it to the whisper service
-						log(`Found Audio Attachment ${attachment.id} by ${envelope.sourceName}. Starting transcription for ${parsedData.params.account}`, "DEBUG")
-						sendToWhisperService(parsedData.params.account, envelope.sourceName, attachment.id)
+						log(`Found Audio Attachment ${attachment.id} by ${envelope.sourceName}. Starting transcription for ${account}`, "DEBUG")
+						sendToWhisperService(account, envelope.sourceName, attachment.id)
 					}
 				});
 			}
@@ -284,6 +342,17 @@ const rpcHandler = (data) => {
 	}
 }
 
+const isAudioAttachment = (attachment) => {
+	return attachment && typeof attachment.contentType === 'string' && attachment.contentType.startsWith('audio/');
+}
+
+const subscribeReceive = (account) => {
+	if(!account || subscribedAccounts.has(account)) return;
+	log(`Subscribing to incoming messages for ${account}`, "INFO");
+	sendRPC('subscribeReceive', { account });
+	subscribedAccounts.add(account);
+}
+
 // Send a JSON-RPC Request to the Signal Client
 /**
  * 
@@ -293,6 +362,10 @@ const rpcHandler = (data) => {
  */
 const sendRPC = (method, params = null, id = messageId++) => {
 	// The Signal Client expects a Stringified JSON Object with a newline at the end
+	if(client == null || !isConnected) {
+		log(`Cannot send ${method}: Signal Client is not connected`, "ERROR");
+		return false;
+	}
 
 	let rpc_message = JSON.stringify({
 		jsonrpc: '2.0',
@@ -302,6 +375,7 @@ const sendRPC = (method, params = null, id = messageId++) => {
 	})
 	log('SENT: ' + rpc_message, "DEBUG");
 	client.write(rpc_message + '\n');
+	return true;
 }
 
 // Start the RPC Client
